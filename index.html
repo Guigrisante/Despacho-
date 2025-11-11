@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>Controle de pedidos/ despacho</title>
+    
+
+  </head>
+    
+  <body>
+  <!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Controle de Pedidos — Despachados</title>
+<style>
+  body{font-family: system-ui, -apple-system, Roboto, "Helvetica Neue", Arial; margin:16px; background:#fafafa; color:#111}
+  h1{margin:0 0 12px}
+  .layout{display:grid; grid-template-columns: 380px 1fr; gap:18px}
+  .card{background:#fff; padding:12px; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+  label{display:block; margin-top:8px; font-size:13px}
+  input[type="text"], input[type="number"], select, textarea {width:100%; padding:8px; margin-top:6px; border:1px solid #ddd; border-radius:6px; box-sizing:border-box}
+  .row {display:flex; gap:8px}
+  .small{flex:1}
+  button{margin-top:10px; padding:8px 12px; border-radius:6px; border:0; background:#1f8ef1; color:white; cursor:pointer}
+  button.secondary{background:#eee; color:#111}
+  .orders-list{display:flex; flex-direction:column; gap:10px}
+  .order{display:flex; gap:12px; align-items:flex-start; padding:10px; border-radius:8px; border:1px solid #eee; background:#fff}
+  .meta{flex:1}
+  .thumbs{display:flex; gap:6px; margin-top:6px; flex-wrap:wrap}
+  .thumbs img{width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid #ddd}
+  .controls{display:flex; gap:6px; align-items:center}
+  .badge{font-size:12px; padding:4px 8px; border-radius:999px; background:#eee}
+  .search{margin-bottom:8px}
+  .muted{color:#666; font-size:13px}
+  .danger{background:#ff6b6b}
+  .success{background:#2ecc71}
+  .flex-between{display:flex; justify-content:space-between; align-items:center}
+  input[type="file"]{margin-top:8px}
+  textarea{min-height:60px}
+  .inline {display:inline-block}
+  .note {font-size:12px; color:#444; margin-top:8px}
+</style>
+</head>
+<body>
+  <h1>Controle de Pedidos — Despacho</h1>
+  <div class="layout">
+    <div class="card">
+      <strong>Novo / Editar Pedido</strong>
+      <form id="form">
+        <input type="hidden" id="orderId" value="" />
+        <label>Quem enviou
+          <input id="sender" type="text" placeholder="Nome ou transportadora" required />
+        </label>
+
+        <div class="row">
+          <div class="small">
+            <label>Dia
+              <input id="day" type="number" min="1" max="31" placeholder="DD" required />
+            </label>
+          </div>
+          <div class="small">
+            <label>Mês
+              <input id="month" type="number" min="1" max="12" placeholder="MM" required />
+            </label>
+          </div>
+          <div class="small">
+            <label>Ano
+              <input id="year" type="number" min="2000" max="2100" placeholder="YYYY" required />
+            </label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Nº do pedido
+              <input id="orderNumber" type="text" placeholder="ex: 12345" required />
+            </label>
+          </div>
+          <div style="width:130px">
+            <label>Nº da nota
+              <input id="invoiceNumber" type="text" placeholder="NF-e" />
+            </label>
+          </div>
+        </div>
+
+        <label>Quantidade
+          <input id="quantity" type="number" min="1" value="1" />
+        </label>
+
+        <label>O que foi enviado (descrição)
+          <textarea id="description" placeholder="Descrição do(s) item(ns)"></textarea>
+        </label>
+
+        <label>Fotos (pode selecionar várias)
+          <input id="photos" type="file" accept="image/*" multiple />
+        </label>
+
+        <div id="preview" class="thumbs" aria-hidden="true"></div>
+
+        <div class="row" style="margin-top:10px">
+          <button id="saveBtn" type="submit">Salvar pedido</button>
+          <button id="cancelEdit" type="button" class="secondary">Limpar</button>
+        </div>
+
+        <div class="note">As imagens são salvas localmente no seu navegador (localStorage). Se você planeja guardar muitas fotos, considere exportar ou usar IndexedDB. Limite do storage pode variar por navegador.</div>
+      </form>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="flex-between">
+          <strong>Pedidos</strong>
+          <div>
+            <input id="search" class="search" type="text" placeholder="Buscar por pedido, descrição ou nota..." />
+          </div>
+        </div>
+        <div style="margin-top:8px" class="muted">Clique em editar para atualizar, ou marque "<em>Despachado</em>" para registrar envio.</div>
+      </div>
+
+      <div id="ordersContainer" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+<script>
+/* ====== STORAGE HELPERS ====== */
+const STORAGE_KEY = 'pedidos_app_v1';
+
+function loadOrders(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){
+    console.error('Erro ao ler storage', e);
+    return [];
+  }
+}
+function saveOrders(orders){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
+}
+
+/* ====== INITIALIZE ====== */
+let orders = loadOrders();
+const form = document.getElementById('form');
+const preview = document.getElementById('preview');
+const photosInput = document.getElementById('photos');
+const ordersContainer = document.getElementById('ordersContainer');
+const searchInput = document.getElementById('search');
+
+function formatDateParts(d, m, y){
+  return String(d).padStart(2,'0') + '/' + String(m).padStart(2,'0') + '/' + String(y);
+}
+
+/* ====== RENDER ====== */
+function renderOrders(filterText = ''){
+  ordersContainer.innerHTML = '';
+  const list = document.createElement('div');
+  list.className = 'orders-list';
+
+  const filtered = orders.filter(o => {
+    if(!filterText) return true;
+    const ft = filterText.toLowerCase();
+    return (o.orderNumber && o.orderNumber.toLowerCase().includes(ft)) ||
+           (o.description && o.description.toLowerCase().includes(ft)) ||
+           (o.invoiceNumber && o.invoiceNumber.toLowerCase().includes(ft)) ||
+           (o.sender && o.sender.toLowerCase().includes(ft));
+  });
+
+  if(filtered.length === 0){
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.innerHTML = '<div class="muted">Nenhum pedido encontrado.</div>';
+    ordersContainer.appendChild(c);
+    return;
+  }
+
+  filtered.forEach(o => {
+    const el = document.createElement('div');
+    el.className = 'order card';
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+
+    const top = document.createElement('div');
+    top.className = 'flex-between';
+    const title = document.createElement('div');
+    title.innerHTML = `<strong>#${escapeHtml(o.orderNumber || '')}</strong> — ${escapeHtml(o.sender || '')}`;
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.textContent = o.dispatched ? 'Despachado' : 'Pendente';
+    if(o.dispatched){ badge.style.background = '#e6ffef'; badge.style.color = '#167a3a' }
+
+    top.appendChild(title); top.appendChild(badge);
+
+    const info = document.createElement('div');
+    info.className = 'muted';
+    info.style.marginTop = '6px';
+    info.innerHTML = `${formatDateParts(o.day,o.month,o.year)} • Nota: ${escapeHtml(o.invoiceNumber||'-')} • Qt: ${o.quantity || 0}`;
+
+    const desc = document.createElement('div');
+    desc.textContent = o.description || '';
+
+    meta.appendChild(top);
+    meta.appendChild(info);
+    meta.appendChild(desc);
+
+    if(o.photos && o.photos.length){
+      const thumbs = document.createElement('div'); thumbs.className = 'thumbs';
+      o.photos.forEach(dataUrl => {
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        thumbs.appendChild(img);
+      });
+      meta.appendChild(thumbs);
+    }
+
+    const controls = document.createElement('div');
+    controls.className = 'controls';
+
+    const dispatchedCheckbox = document.createElement('input');
+    dispatchedCheckbox.type = 'checkbox';
+    dispatchedCheckbox.checked = !!o.dispatched;
+    dispatchedCheckbox.title = 'Marcar como despachado';
+    dispatchedCheckbox.addEventListener('change', () => {
+      toggleDispatched(o.id);
+    });
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'secondary';
+    editBtn.textContent = 'Editar';
+    editBtn.addEventListener('click', () => loadIntoForm(o.id));
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'danger';
+    delBtn.textContent = 'Excluir';
+    delBtn.style.background = '#ff6b6b';
+    delBtn.addEventListener('click', () => {
+      if(confirm('Excluir pedido #' + o.orderNumber + '?')) deleteOrder(o.id);
+    });
+
+    controls.appendChild(dispatchedCheckbox);
+    controls.appendChild(editBtn);
+    controls.appendChild(delBtn);
+
+    el.appendChild(meta);
+    el.appendChild(controls);
+    list.appendChild(el);
+  });
+
+  ordersContainer.appendChild(list);
+}
+
+/* ====== ESCAPE HELPER ====== */
+function escapeHtml(str){
+  if(!str) return '';
+  return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+
+/* ====== CRUD ====== */
+function addOrder(order){
+  orders.unshift(order);
+  saveOrders(orders);
+  renderOrders(searchInput.value.trim());
+}
+
+function updateOrder(orderId, data){
+  orders = orders.map(o => o.id === orderId ? {...o, ...data} : o);
+  saveOrders(orders);
+  renderOrders(searchInput.value.trim());
+}
+
+function deleteOrder(orderId){
+  orders = orders.filter(o => o.id !== orderId);
+  saveOrders(orders);
+  renderOrders(searchInput.value.trim());
+}
+
+function toggleDispatched(orderId){
+  orders = orders.map(o => {
+    if(o.id === orderId) o.dispatched = !o.dispatched;
+    return o;
+  });
+  saveOrders(orders);
+  renderOrders(searchInput.value.trim());
+}
+
+/* ====== FORM HANDLING ====== */
+function clearForm(){
+  form.reset();
+  document.getElementById('orderId').value = '';
+  preview.innerHTML = '';
+  photosInput.value = '';
+}
+function loadIntoForm(orderId){
+  const o = orders.find(x => x.id === orderId);
+  if(!o) return;
+  document.getElementById('orderId').value = o.id;
+  document.getElementById('sender').value = o.sender || '';
+  document.getElementById('day').value = o.day || '';
+  document.getElementById('month').value = o.month || '';
+  document.getElementById('year').value = o.year || '';
+  document.getElementById('orderNumber').value = o.orderNumber || '';
+  document.getElementById('invoiceNumber').value = o.invoiceNumber || '';
+  document.getElementById('quantity').value = o.quantity || '';
+  document.getElementById('description').value = o.description || '';
+  // show previews
+  preview.innerHTML = '';
+  if(o.photos && o.photos.length){
+    o.photos.forEach(dataUrl => {
+      const img = document.createElement('img'); img.src = dataUrl;
+      preview.appendChild(img);
+    });
+  }
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+/* ====== IMAGE READ ====== */
+function readFilesAsDataURLs(fileList){
+  const files = Array.from(fileList || []);
+  return Promise.all(files.map(f => new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = e => res(e.target.result);
+    reader.onerror = e => rej(e);
+    reader.readAsDataURL(f);
+  })));
+}
+
+/* ====== EVENTS ====== */
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const id = document.getElementById('orderId').value || null;
+  const sender = document.getElementById('sender').value.trim();
+  const day = parseInt(document.getElementById('day').value, 10);
+  const month = parseInt(document.getElementById('month').value, 10);
+  const year = parseInt(document.getElementById('year').value, 10);
+  const orderNumber = document.getElementById('orderNumber').value.trim();
+  const invoiceNumber = document.getElementById('invoiceNumber').value.trim();
+  const quantity = parseInt(document.getElementById('quantity').value, 10) || 0;
+  const description = document.getElementById('description').value.trim();
+
+  if(!sender || !orderNumber || !day || !month || !year){
+    alert('Preencha: Quem enviou, nº do pedido e data (dia/mês/ano).');
+    return;
+  }
+
+  // read uploaded files (if any)
+  let newPhotos = [];
+  if(photosInput.files && photosInput.files.length){
+    try{
+      newPhotos = await readFilesAsDataURLs(photosInput.files);
+    }catch(e){
+      console.error('Erro lendo fotos', e);
+      alert('Não foi possível ler as fotos.');
+    }
+  }
+
+  if(id){
+    // update: if there are new photos, append them to existing photos
+    const existing = orders.find(o => o.id === id);
+    const combined = existing ? (existing.photos || []).concat(newPhotos) : newPhotos;
+    updateOrder(id, {
+      sender, day, month, year, orderNumber, invoiceNumber, quantity, description, photos: combined
+    });
+    clearForm();
+  }else{
+    const order = {
+      id: 'o_' + Date.now(),
+      sender, day, month, year, orderNumber, invoiceNumber, quantity, description,
+      photos: newPhotos,
+      dispatched: false,
+      createdAt: new Date().toISOString()
+    };
+    addOrder(order);
+    clearForm();
+  }
+});
+
+document.getElementById('cancelEdit').addEventListener('click', (e) => {
+  e.preventDefault();
+  clearForm();
+});
+
+photosInput.addEventListener('change', async (ev) => {
+  preview.innerHTML = '';
+  if(!photosInput.files || photosInput.files.length === 0) return;
+  // show previews immediately
+  const files = Array.from(photosInput.files);
+  files.forEach(f => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = document.createElement('img'); img.src = e.target.result;
+      preview.appendChild(img);
+    };
+    reader.readAsDataURL(f);
+  });
+});
+
+searchInput.addEventListener('input', () => {
+  renderOrders(searchInput.value.trim());
+});
+
+/* ====== INITIAL RENDER ====== */
+renderOrders();
+
+/* ====== UTILITY: export/import (optional) ====== */
+/* Você pode copiar/colar/manter backup dos pedidos com estas funções no console:
+   - JSON.stringify(loadOrders())  -> copia tudo
+   - localStorage.setItem('pedidos_app_v1', '...json...') -> importar
+*/
+
+</script>
+</body>
+</html>
+    
+  </body>
+  
+</html>
